@@ -5,10 +5,157 @@ set -euo pipefail
 # 正式发布版。支持重复运行：托管配置文件会覆盖更新，托管 shell 配置块会先删除后重写。
 
 GREEN='\033[1;32m'; BLUE='\033[1;34m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
-info(){ echo -e "${BLUE}[INFO]${NC} $*"; }
-ok(){ echo -e "${GREEN}[OK]${NC} $*"; }
-warn(){ echo -e "${YELLOW}[WARN]${NC} $*"; }
-fail(){ echo -e "${RED}[ERR]${NC} $*" >&2; }
+
+choose_language(){
+    local choice="${ONEKEYSSH_LANG:-}"
+
+    if [ -z "$choice" ] && [ -t 0 ]; then
+        printf 'Select language / 选择语言 [en/zh] (default: en): '
+        IFS= read -r choice || choice=""
+    fi
+
+    case "${choice,,}" in
+        zh|zh-cn|cn|chinese|中文)
+            SCRIPT_LANG="zh"
+            ;;
+        *)
+            SCRIPT_LANG="en"
+            ;;
+    esac
+    export ONEKEYSSH_LANG="$SCRIPT_LANG"
+}
+
+tr_msg(){
+    local msg="$*"
+
+    if [ "${SCRIPT_LANG:-en}" = "zh" ]; then
+        printf '%s' "$msg"
+        return 0
+    fi
+
+    case "$msg" in
+        可选软件包已安装：*)
+            printf 'Optional package installed: %s' "${msg#可选软件包已安装：}"
+            ;;
+        当前软件源中未找到可选软件包：*，已跳过。)
+            local value="${msg#当前软件源中未找到可选软件包：}"
+            printf 'Optional package not found in current apt sources, skipped: %s' "${value%，已跳过。}"
+            ;;
+        兼容软件包已安装：*)
+            printf 'Compatibility package installed: %s' "${msg#兼容软件包已安装：}"
+            ;;
+        以下兼容软件包均未在当前软件源中找到，已跳过：*)
+            printf 'None of the compatibility packages were found in current apt sources, skipped: %s' "${msg#以下兼容软件包均未在当前软件源中找到，已跳过：}"
+            ;;
+        未检测到\ ssh/sshd\ 服务管理入口。如\ SSH\ 配置未立即生效，请手动重启\ SSH\ 服务。)
+            printf 'No ssh/sshd service manager entry was detected. If the SSH configuration does not take effect immediately, restart the SSH service manually.'
+            ;;
+        未检测到\ apt-get。本脚本适用于\ Ubuntu/Debian\ 系统。)
+            printf 'apt-get was not detected. This script is intended for Ubuntu/Debian systems.'
+            ;;
+        当前执行用户：*)
+            printf 'Current user: %s' "${msg#当前执行用户：}"
+            ;;
+        当前\ DISPLAY：*)
+            printf 'Current DISPLAY: %s' "${msg#当前 DISPLAY：}"
+            ;;
+        当前\ XAUTHORITY：*)
+            printf 'Current XAUTHORITY: %s' "${msg#当前 XAUTHORITY：}"
+            ;;
+        当前\ DISPLAY\ 为空。服务器端配置将继续执行；完成后请使用已开启\ X11\ forwarding\ 的\ SSH\ 会话重新连接再测试。)
+            printf 'DISPLAY is empty. Server-side configuration will continue; after completion, reconnect with an SSH session that has X11 forwarding enabled before testing.'
+            ;;
+        正在安装\ X11\ 转发工具和磁盘管理应用...)
+            printf 'Installing X11 forwarding tools and disk management applications...'
+            ;;
+        软件包安装完成。)
+            printf 'Package installation completed.'
+            ;;
+        正在配置\ OpenSSH\ 服务端\ X11\ forwarding...)
+            printf 'Configuring OpenSSH server-side X11 forwarding...'
+            ;;
+        未找到\ sshd\ 命令，请确认\ openssh-server\ 已正确安装。)
+            printf 'sshd was not found. Verify that openssh-server is installed correctly.'
+            ;;
+        sshd\ -t\ 配置校验失败，请检查\ SSH\ 配置。)
+            printf 'sshd -t configuration validation failed. Check the SSH configuration.'
+            ;;
+        OpenSSH\ X11\ forwarding\ 配置完成。)
+            printf 'OpenSSH X11 forwarding configuration completed.'
+            ;;
+        正在配置\ sudo\ 保留\ X11\ 环境变量...)
+            printf 'Configuring sudo to preserve X11 environment variables...'
+            ;;
+        sudoers\ X11\ 环境变量配置完成。)
+            printf 'sudoers X11 environment configuration completed.'
+            ;;
+        sudoers\ 配置校验失败，正在回滚生成的\ sudoers\ 文件。)
+            printf 'sudoers validation failed. Rolling back the generated sudoers file.'
+            ;;
+        正在配置用户登录环境，以支持\ sudo\ 图形程序访问当前\ X11\ 会话...)
+            printf 'Configuring login environment so sudo GUI programs can access the current X11 session...'
+            ;;
+        系统级\ XAUTHORITY\ 登录配置完成。)
+            printf 'System-wide XAUTHORITY login configuration completed.'
+            ;;
+        正在为当前\ sudo\ 用户补充个人\ shell\ 启动配置...)
+            printf 'Adding personal shell startup compatibility configuration for the current sudo user...'
+            ;;
+        已为用户*\ 写入个人\ shell\ 兼容配置。)
+            local value="${msg#已为用户 }"
+            printf 'Personal shell compatibility configuration written for user %s.' "${value% 写入个人 shell 兼容配置。}"
+            ;;
+        未识别到非\ root\ 的\ SUDO_USER，已跳过个人\ shell\ 配置。)
+            printf 'No non-root SUDO_USER was detected. Personal shell configuration was skipped.'
+            ;;
+        正在安装\ root\ X11\ 授权同步工具：*)
+            printf 'Installing root X11 authorization sync tool: %s' "${msg#正在安装 root X11 授权同步工具：}"
+            ;;
+        x11-root-sync\ 安装完成。)
+            printf 'x11-root-sync installation completed.'
+            ;;
+        正在安装\ root\ X11\ 命令运行器：*)
+            printf 'Installing root X11 command runner: %s' "${msg#正在安装 root X11 命令运行器：}"
+            ;;
+        x11-root-run\ 安装完成。)
+            printf 'x11-root-run installation completed.'
+            ;;
+        正在安装磁盘工具启动命令...)
+            printf 'Installing disk tool launch commands...'
+            ;;
+        xgparted\ 和\ xgnome-disks\ 安装完成。)
+            printf 'xgparted and xgnome-disks installation completed.'
+            ;;
+        正在安装\ X11\ 诊断命令：*)
+            printf 'Installing X11 diagnostic command: %s' "${msg#正在安装 X11 诊断命令：}"
+            ;;
+        x11-debug\ 安装完成。)
+            printf 'x11-debug installation completed.'
+            ;;
+        正在安装\ X11\ 验证命令：*)
+            printf 'Installing X11 test command: %s' "${msg#正在安装 X11 验证命令：}"
+            ;;
+        x11-test\ 安装完成。)
+            printf 'x11-test installation completed.'
+            ;;
+        正在配置\ root\ shell\ 自动使用\ /root/.Xauthority...)
+            printf 'Configuring the root shell to automatically use /root/.Xauthority...'
+            ;;
+        root\ shell\ X11\ 授权配置完成。)
+            printf 'Root shell X11 authorization configuration completed.'
+            ;;
+        *)
+            printf '%s' "$msg"
+            ;;
+    esac
+}
+
+choose_language
+
+info(){ echo -e "${BLUE}[INFO]${NC} $(tr_msg "$*")"; }
+ok(){ echo -e "${GREEN}[OK]${NC} $(tr_msg "$*")"; }
+warn(){ echo -e "${YELLOW}[WARN]${NC} $(tr_msg "$*")"; }
+fail(){ echo -e "${RED}[ERR]${NC} $(tr_msg "$*")" >&2; }
 run_root(){ if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 pkg_available(){ apt-cache show "$1" >/dev/null 2>&1; }
 
@@ -400,7 +547,8 @@ fi'
 append_managed_block /root/.bashrc '# >>> x11-root-auto-sync >>>' '# <<< x11-root-auto-sync <<<' "$ROOT_BLOCK"
 ok "root shell X11 授权配置完成。"
 
-cat <<'FINAL_MESSAGE'
+if [ "${SCRIPT_LANG:-en}" = "zh" ]; then
+    cat <<'FINAL_MESSAGE'
 
 ============================================================
 Ubuntu Server X11 Forwarding Setup v1.0.0
@@ -464,3 +612,69 @@ Ubuntu Server X11 Forwarding Setup v1.0.0
 ============================================================
 
 FINAL_MESSAGE
+else
+    cat <<'FINAL_MESSAGE'
+
+============================================================
+Ubuntu Server X11 Forwarding Setup v1.0.0
+Setup completed
+============================================================
+
+Server-side X11 forwarding has been configured.
+
+Next steps:
+
+1. Make sure Xmanager, VcXsrv, or Xming is running on Windows.
+
+2. Make sure X11 forwarding is enabled in your Xshell session:
+
+   Connection -> SSH -> Tunneling -> Forward X11 connections
+
+3. Disconnect the current SSH session and reconnect to the server.
+
+4. After reconnecting, run these verification commands:
+
+   echo "$DISPLAY"
+   echo "$XAUTHORITY"
+   xclock
+   sudo xclock
+   x11-test
+
+Expected results:
+
+- xclock opens correctly as the normal user.
+- sudo xclock opens correctly as root.
+- x11-test reports that X11 validation passed.
+- echo "$XAUTHORITY" usually points to the current user's .Xauthority file, for example:
+
+   /home/<user>/.Xauthority
+
+Installed commands:
+
+   x11-test       Tests normal-user, sudo, and root GUI startup paths.
+   x11-debug      Prints X11, sudo, and Xauthority diagnostic information.
+   x11-root-run   Runs a command as root with synchronized X11 authorization.
+   xgparted       Starts GParted through x11-root-run.
+   xgnome-disks   Starts GNOME Disks through x11-root-run.
+
+Disk tool notes:
+
+- gparted and gnome-disks have been installed.
+- x11-test only runs safe GUI tests; it does not start disk management tools.
+- Before using disk management tools, confirm the target disk and partition names.
+
+Troubleshooting:
+
+- If DISPLAY is empty, make sure Xshell X11 forwarding is enabled and reconnect SSH.
+- If sudo xclock fails, run:
+
+   x11-debug
+
+- If this shell was already open before the script ran, reconnect SSH or temporarily run:
+
+   export XAUTHORITY="$HOME/.Xauthority"
+
+============================================================
+
+FINAL_MESSAGE
+fi
